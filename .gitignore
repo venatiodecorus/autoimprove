@@ -1,0 +1,28 @@
+# Runtime state
+state/workers/
+state/ready-to-merge/
+state/merge.lock
+state/spec.hash
+state/last-playtest.sha
+state/pause
+state/*.lock
+state/audit-history.jsonl
+
+# Per-builder worktrees (these are live git worktrees, not committable)
+worktrees/
+
+# OS / editor
+.DS_Store
+*.log
+.env
+.env.local
+
+# Claude Code
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Node / Python / common build artifacts — uncomment as relevant for your project
+# node_modules/
+# dist/
+# __pycache__/
+# .pytest_cache/

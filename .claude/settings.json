@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(gh:*)",
+      "Bash(jq:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(test:*)",
+      "Bash(date:*)",
+      "Bash(touch:*)",
+      "Bash(echo:*)",
+      "Bash(tee:*)",
+      "Bash(./scripts/autoimprove.sh:*)",
+      "Bash(./scripts/bootstrap.sh:*)",
+      "Bash(./scripts/pause.sh:*)",
+      "Bash(./scripts/close-milestone.sh:*)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(rm -rf:*)",
+      "Bash(gh repo delete:*)"
+    ]
+  }
+}
