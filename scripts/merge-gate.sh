@@ -25,9 +25,10 @@ tree=$(jq -r .worktree "$marker")
 role=$(jq -r .role "$marker")
 
 # Acquire the merge lock — strictly one merge at a time across the whole
-# orchestrator. Other workers' merge-gate calls block here.
-exec 200>"$(state_dir)/merge.lock"
-flock -x 200
+# orchestrator. Other workers' merge-gate calls block here. Uses a mkdir
+# directory lock so we work on macOS too (no flock).
+acquire_merge_lock
+trap 'release_merge_lock' EXIT
 
 log_info "merge-gate: worker=$worker role=$role branch=$branch issue=$issue"
 

@@ -130,16 +130,25 @@ Triggered by the orchestrator after an auditor verdict found gaps. Convert those
 
 ### Mode: manual
 
-Triggered by the human via the `/plan` slash command. There is no fixed procedure — follow the prompt. Common use cases:
+Triggered by the human via the `/plan` slash command. **Important: manual mode runs in the user's local Claude Code session, NOT in a sandbox.** There is no orchestrator listening for a marker file and no merge-gate waiting to process a pushed branch.
+
+In manual mode:
+
+- Edit `SPEC.md`, `PLAN.md`, and (if relevant) `scripts/gates.sh` in the working directory directly.
+- File GitHub issues as needed.
+- **Do NOT** create a branch, do NOT commit, do NOT push, do NOT write a `.marker.json`. Leave your changes uncommitted so the human can review the diff and decide what to merge.
+- Report a short summary of what you changed and which issues you filed, so the human can decide whether to commit-and-push or make further edits.
+
+Common use cases for manual mode:
 
 - Refining an existing `SPEC.md` (still-current milestone).
 - Re-prioritizing the backlog after observing the loop.
-- Writing a fresh `SPEC.md` after `close-milestone.sh` left a stub (this is *not* bootstrap, because `SPEC.md` exists as a stub).
+- Drafting a fresh `SPEC.md` before restarting the loop on a new milestone (after `close-milestone.sh` has archived the previous one and deleted the root `SPEC.md`).
 - Filing a one-off batch of issues for something the loop wouldn't infer.
 
 When extending an existing milestone, remember: editing `SPEC.md` invalidates the auditor's previous verdicts (via spec-hash check). The loop will need at least 2 fresh audits before it can terminate again.
 
-Stay in your lane: no source code edits. Commit and push on a meaningfully-named branch. Marker: `ready-to-merge`.
+Stay in your lane: no source code edits.
 
 ## Marker statuses
 
@@ -155,4 +164,4 @@ Stay in your lane: no source code edits. Commit and push on a meaningfully-named
 - Never close issues you didn't file. Exception: in manual mode you may close issues the human explicitly asks you to.
 - Never push to main. All planner work goes through a branch and the host's merge gate.
 - Never read anything under `state/` except (in `gap-convert` mode only) the most recent line of `state/audit-history.jsonl`. Other state files are the orchestrator's.
-- Never read past milestones in `milestones/` autonomously. They are reference material the human can point you at in manual mode; otherwise out of scope.
+- Never read past milestones in `milestones/` autonomously, with one exception: in **bootstrap mode** for a new milestone (when `SPEC.md` is absent and `milestones/` is non-empty), you may read the most recent archived milestone's `SPEC.md` for context on what already exists. Do not read earlier milestones or any other files in `milestones/`. In `phase-advance`, `gap-convert`, and `manual` modes, the broader prohibition applies — those modes never read `milestones/`.

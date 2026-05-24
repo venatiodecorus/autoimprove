@@ -163,6 +163,17 @@ case "$status" in
     issue=$(jq -r .issue "$marker_path" 2>/dev/null || echo "?")
     details=$(jq -r .details "$marker_path" 2>/dev/null || echo "no details")
     report_error "$worker_id" "$issue" "agent marked blocked: $details" "$stderr_log"
+    # For builders, label the issue so it doesn't get re-picked next tick;
+    # retry_blocked_issues will strip the label after BLOCKED_RETRY_S so the
+    # next builder gets a fresh attempt with the prior comment as context.
+    if [ "$role" = "builder" ] && [ "$issue" != "null" ] && [ "$issue" != "?" ]; then
+      gh issue edit "$issue" --add-label blocked 2>/dev/null || true
+    fi
+    # Gap-convert planner that gave up → clear the sentinel so the next
+    # tick can re-attempt against the same audit.
+    if [ "$role" = "planner" ] && [ "$context" = "gap-convert" ]; then
+      clear_gap_convert_attempt
+    fi
     sbx rm --force "$worker_id" >/dev/null 2>&1 || true
     rm -f "$(state_dir)/workers/$worker_id.json"
     ;;

@@ -39,6 +39,10 @@ fi
 if ! command -v uuidgen >/dev/null 2>&1; then
   log_warn "uuidgen not found. Worker IDs will fall back to timestamps."
 fi
+if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+  log_warn "neither sha256sum nor shasum found. Spec-hash invalidation will fail."
+  exit 1
+fi
 
 if [ ! -f BRIEF.md ]; then
   log_warn "BRIEF.md missing. Write your project pitch before running the loop."

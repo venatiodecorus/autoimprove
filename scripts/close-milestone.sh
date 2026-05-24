@@ -66,29 +66,15 @@ git mv PLAN.md "$dir/PLAN.md"
 } > "$dir/CHANGELOG.md"
 
 # Reset state for the next milestone
-rm -f state/audit-history.jsonl state/spec.hash state/last-playtest.sha
+rm -f state/audit-history.jsonl state/spec.hash state/last-playtest.sha \
+      state/gap-convert.last-source-hash state/gap-convert.processed
 touch state/audit-history.jsonl
 
-# Stub SPEC.md and PLAN.md for the next milestone
-cat > SPEC.md <<EOF
-# SPEC — next milestone
-
-The previous milestone is archived in \`milestones/${next}-${name}/\`. Read
-that milestone's SPEC.md for context on what already exists, then run the
-planner via:
-
-    /plan "describe the new milestone's scope here"
-
-to develop the next spec. Until SPEC.md is filled in, the autoimprove loop
-will exit immediately because there is no target to compare against.
-EOF
-
-cat > PLAN.md <<EOF
-# PLAN — next milestone
-
-PLAN.md is written by the planner from the new SPEC.md.
-See \`SPEC.md\` for the next step.
-EOF
+# SPEC.md and PLAN.md were `git mv`'d into the archive above; nothing remains
+# at the repo root. On the next `./scripts/autoimprove.sh` run, the absence
+# of SPEC.md triggers planner bootstrap automatically — that's the contract
+# the planner agent definition documents. The human can also kick this off
+# manually with `/plan "new milestone scope"` before restarting the loop.
 
 git add .
 git commit -m "chore: close milestone ${next} (${name})
@@ -98,4 +84,7 @@ git commit -m "chore: close milestone ${next} (${name})
 Co-Authored-By: Claude <noreply@anthropic.com>"
 
 log_info "milestone ${next}-${name} archived"
-log_info "next step: /plan \"describe the new milestone's scope\""
+log_info "next steps:"
+log_info "  - Restart the loop (./scripts/autoimprove.sh) and the planner will"
+log_info "    bootstrap a new milestone from BRIEF.md, OR"
+log_info "  - Run /plan \"describe the new milestone's scope\" first to seed it."
