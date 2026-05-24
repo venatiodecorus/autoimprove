@@ -59,7 +59,7 @@ Add scope later by editing SPEC.md (the audit count auto-invalidates) or by clos
 Errors print inline in the orchestrator's output, like:
 
 ```
-[ERROR] worker b-a3f2e1c4 (issue #15) failed: post-rebase gates failed. Log: worktrees/15-add-camera-controls/.gates.log
+[ERROR] worker b-a3f2e1c4 (issue #15) failed: post-rebase gates failed. Log: .sbx/b-a3f2e1c4-worktrees/iter/15-add-camera-controls-b-a3f2e1c4/.gates.log
 ```
 
 ## When the loop says "milestone complete"

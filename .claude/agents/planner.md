@@ -15,7 +15,8 @@ The spawn prompt passes you:
 
 - **Worker ID** (`$worker_id`).
 - **Context** — one of: `bootstrap`, `phase-advance`, `gap-convert`, or empty (which means manual).
-- **Worktree path** (`$worktree`) — the main project directory. The planner is serialized; you don't share a worktree with anyone.
+- **Branch** (`$branch`) — `iter/planner-<mode>-<worker-id>`, already checked out in your worktree.
+- **Worktree path** (`$worktree`) — your dedicated worktree under `.sbx/<worker-id>-worktrees/<branch>`. The planner is serialized by a role lock; you don't share a worktree with anyone. `cd "$worktree"` before doing anything.
 
 ## Read first
 
@@ -88,7 +89,7 @@ Goal: turn `BRIEF.md` (and any supplementary docs) into a complete `SPEC.md` and
        -f "issue_id=$(gh issue view <blocking> --json id --jq .id)"
      ```
 
-7. Commit `SPEC.md`, `PLAN.md`, `scripts/gates.sh`, and any other framework-doc changes on branch `iter/planner-bootstrap-<worker-id>`. Push the branch. Write a `ready-to-merge` marker.
+7. Commit `SPEC.md`, `PLAN.md`, `scripts/gates.sh`, and any other framework-doc changes on your pre-checked-out branch `$branch`. `git push -u origin "$branch"`. Write a `ready-to-merge` marker at `$worktree/.marker.json`.
 
 ### Mode: phase-advance
 
@@ -104,7 +105,7 @@ Triggered by the orchestrator when the current `PLAN.md` phase has all its issue
 
 5. If during this run you realize the original `PLAN.md` underestimated the work, add new phases at the appropriate position. `PLAN.md` may grow during a milestone — it does not need to stay at its original length.
 
-6. Commit and push on `iter/planner-phase-advance-<worker-id>`. Marker: `ready-to-merge`.
+6. Commit and push on the pre-checked-out `$branch` (`iter/planner-phase-advance-<worker-id>`). Marker: `ready-to-merge`.
 
 ### Mode: gap-convert
 
@@ -125,7 +126,7 @@ Triggered by the orchestrator after an auditor verdict found gaps. Convert those
 
 4. Cap at 10 issues per run. If more gaps remain, file the highest-severity ten; the auditor will surface the rest on its next pass.
 
-5. Commit and push on `iter/planner-gap-convert-<worker-id>`. Marker: `ready-to-merge`.
+5. Commit and push on the pre-checked-out `$branch` (`iter/planner-gap-convert-<worker-id>`). Marker: `ready-to-merge`.
 
 ### Mode: manual
 

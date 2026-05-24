@@ -18,7 +18,7 @@ scripts/                framework code (orchestrator, merge gate, etc.)
   commands/             slash commands
 
 state/                  runtime state (gitignored)
-worktrees/              per-builder git worktrees (gitignored)
+.sbx/                   per-worker git worktrees managed by sbx (gitignored)
 milestones/             archived previous milestones
 ```
 

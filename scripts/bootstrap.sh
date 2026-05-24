@@ -134,7 +134,7 @@ create_label "agent/auditor"   "fef2c0" "Filed by the planner from auditor gaps"
 # Step 5 — ensure framework state directories exist
 # ---------------------------------------------------------------------------
 
-mkdir -p state/workers state/ready-to-merge worktrees milestones
+mkdir -p state/workers state/ready-to-merge milestones .sbx
 touch state/audit-history.jsonl
 
 # Make scripts executable (in case archive extraction didn't preserve perms)

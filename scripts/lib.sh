@@ -34,7 +34,6 @@ log_warn() {
 # ----------------------------------------------------------------------------
 
 state_dir() { echo "$REPO_ROOT/state"; }
-worktrees_dir() { echo "$REPO_ROOT/worktrees"; }
 
 # ----------------------------------------------------------------------------
 # Spec hash and audit history
@@ -95,6 +94,22 @@ last_audit_found_gaps() {
     [ "$(echo "$last" | jq '.gaps | length')" -gt 0 ]
 }
 
+# gap-convert sentinel: stores the hash of the last audit verdict that
+# triggered a gap-convert run. Lets us spawn gap-convert exactly once per
+# new gap-finding audit verdict without re-spawning every tick.
+maybe_clear_gap_convert_flag() {
+  local hist="$(state_dir)/audit-history.jsonl"
+  local flag="$(state_dir)/gap-convert.processed"
+  [ -f "$flag" ] || return 0
+  [ -f "$hist" ] || { rm -f "$flag"; return 0; }
+  local last
+  last=$(grep -v '"type":"invalidation"' "$hist" | tail -1)
+  # If the most recent audit no longer shows gaps, the cycle moved forward.
+  if [ -z "$last" ] || [ "$(echo "$last" | jq -r '.satisfied' 2>/dev/null)" = "true" ]; then
+    rm -f "$flag"
+  fi
+}
+
 # ----------------------------------------------------------------------------
 # Playtest staleness
 # ----------------------------------------------------------------------------
@@ -147,7 +162,7 @@ sweep_stale_workers() {
   local now=$(date +%s)
   for f in "$(state_dir)/workers/"*.json; do
     [ -e "$f" ] || continue
-    local started worker issue tree age
+    local started worker issue tree branch age
     started=$(jq -r .started_at "$f" 2>/dev/null || echo "")
     [ -z "$started" ] && continue
     local started_epoch
@@ -158,14 +173,45 @@ sweep_stale_workers() {
       worker=$(jq -r .worker "$f")
       issue=$(jq -r .issue "$f")
       tree=$(jq -r .worktree "$f")
+      branch=$(jq -r .branch "$f" 2>/dev/null || echo "")
       report_error "$worker" "$issue" "timeout after ${age}s" \
         "$(state_dir)/workers/$worker.stderr"
       # Reopen issue if it was closed prematurely
-      [ "$issue" != "null" ] && gh issue reopen "$issue" 2>/dev/null && \
-        gh issue edit "$issue" --add-label "blocked" 2>/dev/null
-      "$REPO_ROOT/scripts/cleanup-worker.sh" "$worker" "$tree" 2>/dev/null || true
+      if [ "$issue" != "null" ]; then
+        gh issue reopen "$issue" 2>/dev/null || true
+        gh issue edit "$issue" --add-label "blocked" 2>/dev/null || true
+      fi
+      "$REPO_ROOT/scripts/cleanup-worker.sh" "$worker" "$tree" "$branch" 2>/dev/null || true
     fi
   done
+}
+
+# Strip the 'blocked' label from issues whose last activity is older than
+# BLOCKED_RETRY_S, so the next dispatch re-picks them. This is the simple
+# version of "blocked issue triage": after the cooldown, give them one
+# more shot. If they fail again, they get blocked again, etc.
+retry_blocked_issues() {
+  local cooldown="${BLOCKED_RETRY_S:-3600}"
+  local now_epoch
+  now_epoch=$(date +%s)
+  # Read once; up to 50 blocked issues per pass.
+  local rows
+  rows=$(gh issue list --state open --label blocked --limit 50 \
+    --json number,updatedAt --jq '.[] | "\(.number) \(.updatedAt)"' 2>/dev/null || true)
+  [ -z "$rows" ] && return 0
+  while IFS=' ' read -r n updated; do
+    [ -z "$n" ] && continue
+    local updated_epoch age
+    updated_epoch=$(date -d "$updated" +%s 2>/dev/null || \
+                    date -j -f "%Y-%m-%dT%H:%M:%SZ" "$updated" +%s 2>/dev/null || echo 0)
+    age=$((now_epoch - updated_epoch))
+    if [ "$age" -ge "$cooldown" ]; then
+      if gh issue edit "$n" --remove-label blocked >/dev/null 2>&1; then
+        gh issue comment "$n" --body "Cooldown elapsed (${age}s ≥ ${cooldown}s); re-entering build queue." >/dev/null 2>&1 || true
+        log_info "retry: stripped 'blocked' from issue #$n (last update ${age}s ago)"
+      fi
+    fi
+  done <<< "$rows"
 }
 
 # ----------------------------------------------------------------------------
@@ -282,22 +328,23 @@ is_paused() {
 }
 
 # ----------------------------------------------------------------------------
-# Per-role serialization
+# Per-role serialization (atomic via mkdir)
 # ----------------------------------------------------------------------------
 
-# Returns 0 if the role lock was acquired (and creates the lock file).
-# Returns 1 if another instance of the role is already running.
+# mkdir is atomic across processes on POSIX filesystems, unlike test+write.
+# This means /plan (manual) and the daemon can't both run a planner at
+# the same time.
 acquire_role_lock() {
   local role=$1
   local lock="$(state_dir)/$role.lock"
-  if [ -f "$lock" ]; then
-    return 1
+  if mkdir "$lock" 2>/dev/null; then
+    echo "$$" > "$lock/owner"
+    return 0
   fi
-  echo "$$" > "$lock"
-  return 0
+  return 1
 }
 
 release_role_lock() {
   local role=$1
-  rm -f "$(state_dir)/$role.lock"
+  rm -rf "$(state_dir)/$role.lock"
 }

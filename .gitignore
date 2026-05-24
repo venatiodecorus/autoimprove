@@ -6,10 +6,11 @@ state/spec.hash
 state/last-playtest.sha
 state/pause
 state/*.lock
+state/gap-convert.processed
 state/audit-history.jsonl
 
-# Per-builder worktrees (these are live git worktrees, not committable)
-worktrees/
+# Sandbox-managed git worktrees (per-worker, recreated on demand)
+.sbx/
 
 # OS / editor
 .DS_Store
