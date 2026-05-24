@@ -54,17 +54,32 @@ While you're tuning, a single command spins up the orchestrator with live monito
 ./scripts/monitor.sh
 ```
 
-That launches (or re-attaches to) a `autoimprove` tmux session with five windows:
+That launches (or re-attaches to) an `autoimprove` tmux session with a dense two-window layout:
 
-| Window | What it shows |
-| --- | --- |
-| `loop` | The orchestrator itself, with stdout teed to `state/orchestrator.log` |
-| `dash` | Colored snapshot every 2s — workers, ready-to-merge, issue counts by priority, last audit + gap-convert state, playtest staleness, current phase, sbx sandboxes |
-| `workers` | Live tail of every `state/workers/*.{stdout,stderr}`. Picks up new workers as they appear; each line is prefixed with the worker id. |
-| `sbx` | `sbx ls` refreshed every 3s |
-| `git` | `git log --oneline -20` + `git status --short` every 5s |
+**Window 1 — `main`** (three panes, everything you usually need on one screen):
 
-Detach with `C-b d` (orchestrator keeps running). Reattach with `./scripts/monitor.sh` again. Kill the whole session (and the orchestrator) with `C-b : kill-session`.
+```
+┌──────────────────┬─────────────────────┐
+│ dashboard        │                     │
+│ (top-left)       │   workers           │
+├──────────────────┤   (live agent       │
+│ orchestrator     │    activity)        │
+│ (bottom-left)    │                     │
+└──────────────────┴─────────────────────┘
+```
+
+- **dashboard** — Colored snapshot every 2s: workers, ready-to-merge, issue counts by priority, last audit + gap-convert state, playtest staleness, current phase, sbx sandboxes. Flicker-free rendering.
+- **orchestrator** — Runs `./scripts/autoimprove.sh`, stdout tee'd to `state/orchestrator.log`. This is where pause/Ctrl+C reaches the loop.
+- **workers** — Live tail of every `state/workers/*.{stdout,stderr}`. Picks up new workers as they appear; each line is prefixed with the worker id. Agent activity (tool calls, results, costs) streams here.
+
+**Window 2 — `extras`** (deep debugging; cycle with `C-b n`): `git log + status` on top, raw `sbx ls` on bottom. The dashboard already covers most of this, so you usually won't need it.
+
+Tips:
+- `C-b d` detach (orchestrator keeps running). Reattach with `./scripts/monitor.sh`.
+- `C-b ←/→/↑/↓` or click — navigate between panes (mouse mode is on).
+- `C-b z` zoom current pane to fullscreen (toggle). Useful when worker activity is high-volume.
+- `C-b [` enter scrollback mode (q to exit).
+- `C-b : kill-session` stop everything including the orchestrator.
 
 Worker activity streams live in the `workers` window because [spawn-worker.sh](scripts/spawn-worker.sh) pipes claude's `--output-format stream-json --verbose` through [scripts/_claude-pretty.jq](scripts/_claude-pretty.jq) — each line is one significant event (tool call, tool result, assistant text, or final summary).
 
