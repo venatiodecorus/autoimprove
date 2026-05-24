@@ -67,7 +67,8 @@ git mv PLAN.md "$dir/PLAN.md"
 
 # Reset state for the next milestone
 rm -f state/audit-history.jsonl state/spec.hash state/last-playtest.sha \
-      state/gap-convert.last-source-hash state/gap-convert.processed
+      state/gap-convert.last-source-hash state/gap-convert.processed \
+      state/consecutive-failures.*
 touch state/audit-history.jsonl
 
 # SPEC.md and PLAN.md were `git mv`'d into the archive above; nothing remains

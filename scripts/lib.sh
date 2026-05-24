@@ -69,6 +69,21 @@ iso8601_to_epoch() {
 
 state_dir() { echo "$REPO_ROOT/state"; }
 
+# Compute the on-disk worktree path that `sbx run --branch <branch>` creates
+# for a given (worker_id, branch). sbx normalizes '/' → '-' in branch names
+# when building the worktree directory, so a branch like
+#   iter/planner-bootstrap-p-XXX
+# lands at
+#   $REPO_ROOT/.sbx/<worker_id>-worktrees/iter-planner-bootstrap-p-XXX
+# Every script that needs the host-visible worktree path must go through
+# this helper. (Verified via sbx create test on 2026-05-24.)
+worktree_path_for() {
+  local wid=$1 branch=$2
+  local dir
+  dir=$(printf '%s' "$branch" | tr '/' '-')
+  echo "$REPO_ROOT/.sbx/${wid}-worktrees/${dir}"
+}
+
 # Write a worker state file. Called by spawn helpers; one schema for every
 # role so sweep_stale_workers + count_live_workers see them uniformly.
 write_worker_state() {
@@ -432,6 +447,64 @@ plan_exhausted() {
 
 is_paused() {
   [ -f "$(state_dir)/pause" ]
+}
+
+# ----------------------------------------------------------------------------
+# Consecutive-failure guard
+# ----------------------------------------------------------------------------
+#
+# When a role fails deterministically (e.g., a config error makes every
+# planner bootstrap crash the same way), each retry burns one sbx + claude
+# invocation. After MAX_CONSECUTIVE_FAILURES (default 3), auto-pause the
+# loop with an actionable message so the user can investigate without
+# the meter running.
+#
+# spawn-worker.sh calls bump_consecutive_failure on crash/blocked and
+# reset_consecutive_failure on success. autoimprove.sh's tick calls
+# check_failure_cap before dispatching.
+
+consecutive_failure_count() {
+  local role=$1
+  cat "$(state_dir)/consecutive-failures.$role" 2>/dev/null || echo 0
+}
+
+bump_consecutive_failure() {
+  local role=$1
+  local n
+  n=$(consecutive_failure_count "$role")
+  echo $((n + 1)) > "$(state_dir)/consecutive-failures.$role"
+}
+
+reset_consecutive_failure() {
+  local role=$1
+  rm -f "$(state_dir)/consecutive-failures.$role"
+}
+
+# Returns 0 if any role has hit its failure cap (and the loop should pause).
+# Returns 1 otherwise. Touches state/pause and prints a one-time warning
+# when the cap is first hit.
+check_failure_cap() {
+  local cap="${MAX_CONSECUTIVE_FAILURES:-3}"
+  local role n
+  for role in builder planner playtester auditor; do
+    n=$(consecutive_failure_count "$role")
+    if [ "$n" -ge "$cap" ]; then
+      if [ ! -f "$(state_dir)/pause" ]; then
+        log_warn "============================================================"
+        log_warn "$role has failed $n consecutive times (cap=$cap); auto-pausing."
+        log_warn "Investigate logs:"
+        log_warn "  ls state/workers/*.stderr  (per-worker output)"
+        log_warn "  cat state/orchestrator.log (orchestrator decisions)"
+        log_warn "Once fixed, reset and unpause:"
+        log_warn "  rm state/consecutive-failures.$role"
+        log_warn "  ./scripts/pause.sh off"
+        log_warn "============================================================"
+        touch "$(state_dir)/pause"
+      fi
+      return 0
+    fi
+  done
+  return 1
 }
 
 # ----------------------------------------------------------------------------

@@ -121,7 +121,8 @@ spawn_serial_stage() {
   if ! acquire_role_lock "$role"; then
     return 1
   fi
-  local wt="$REPO_ROOT/.sbx/${wid}-worktrees/${br}"
+  local wt
+  wt=$(worktree_path_for "$wid" "$br")
   write_worker_state "$wid" "$role" "" "$br" "$wt" "$ctx"
   (
     "$SCRIPT_DIR/spawn-worker.sh" "$role" "$ctx" "$wid" "$br" || \
@@ -176,6 +177,15 @@ while [ "$iter" -lt "$MAX_ITERATIONS" ]; do
     "$SCRIPT_DIR/merge-gate.sh" "$worker_id" || true
   done
 
+  # --- consecutive-failure cap ---------------------------------------------
+  # If any role has failed repeatedly with no successful run in between,
+  # auto-pause rather than burn through more sbx + claude invocations.
+  # check_failure_cap touches state/pause when it trips; the next iteration
+  # of the pause check above will catch it.
+  if check_failure_cap; then
+    continue
+  fi
+
   # --- termination check ----------------------------------------------------
   if terminated; then
     log_info "=========================================================="
@@ -229,7 +239,7 @@ while [ "$iter" -lt "$MAX_ITERATIONS" ]; do
       # Include worker_id in branch name so retries against the same
       # issue never collide on the branch already-exists check.
       branch="iter/${issue}-${slug}-${worker_id}"
-      worktree="$REPO_ROOT/.sbx/${worker_id}-worktrees/${branch}"
+      worktree=$(worktree_path_for "$worker_id" "$branch")
       log_info "dispatch builder: worker=$worker_id issue=#$issue branch=$branch"
       spawn_bg_builder "$issue" "$worker_id" "$branch" "$worktree"
     done

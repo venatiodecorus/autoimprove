@@ -30,8 +30,10 @@ branch=${4:?"missing branch"}
 
 # sbx --branch creates this path. The host reads .marker.json from here
 # after the sandbox exits. The sandbox sees both the repo root and the
-# worktree (with the branch already checked out in the worktree).
-worktree="$REPO_ROOT/.sbx/${worker_id}-worktrees/${branch}"
+# worktree (with the branch already checked out in the worktree). Note:
+# sbx normalizes slashes in branch names to hyphens in the directory,
+# so worktree_path_for handles that translation.
+worktree=$(worktree_path_for "$worker_id" "$branch")
 
 stdout_log="$(state_dir)/workers/$worker_id.stdout"
 stderr_log="$(state_dir)/workers/$worker_id.stderr"
@@ -106,11 +108,23 @@ exit_code="${PIPESTATUS[0]}"
 
 marker_path="$worktree/.marker.json"
 if [ ! -f "$marker_path" ]; then
-  report_error "$worker_id" "?" "no marker file (likely crash, exit=$exit_code)" "$stderr_log"
-  # Tear down the sandbox + worktree + branch so we don't leak.
-  sbx rm --force "$worker_id" >/dev/null 2>&1 || true
-  rm -f "$(state_dir)/workers/$worker_id.json"
-  exit 1
+  # Defense in depth: if our path computation disagrees with where sbx
+  # actually put the worktree (e.g., sbx changed its branch-name → dir
+  # normalization), scan .sbx/<wid>-worktrees/* for any marker. This
+  # turns a silent crash-loop into a noisy warning we can act on.
+  fallback=$(find "$REPO_ROOT/.sbx/${worker_id}-worktrees" -maxdepth 2 -name .marker.json -type f 2>/dev/null | head -1)
+  if [ -n "$fallback" ]; then
+    log_warn "marker found at $fallback but expected $marker_path — sbx path normalization may have changed"
+    marker_path="$fallback"
+    worktree=$(dirname "$fallback")
+  else
+    report_error "$worker_id" "?" "no marker file (likely crash, exit=$exit_code)" "$stderr_log"
+    bump_consecutive_failure "$role"
+    # Tear down the sandbox + worktree + branch so we don't leak.
+    sbx rm --force "$worker_id" >/dev/null 2>&1 || true
+    rm -f "$(state_dir)/workers/$worker_id.json"
+    exit 1
+  fi
 fi
 
 status=$(jq -r .status "$marker_path" 2>/dev/null || echo "unknown")
@@ -157,6 +171,7 @@ case "$status" in
   ready-to-merge)
     enrich_marker
     mv "$marker_path" "$(state_dir)/ready-to-merge/$worker_id.json"
+    reset_consecutive_failure "$role"
     # Sandbox container can go away; worktree stays for merge-gate.
     sbx stop "$worker_id" >/dev/null 2>&1 || true
     ;;
@@ -165,6 +180,7 @@ case "$status" in
       auditor)    record_audit_verdict ;;
       playtester) maybe_record_clean_playtest ;;
     esac
+    reset_consecutive_failure "$role"
     # Nothing to merge; full teardown.
     sbx rm --force "$worker_id" >/dev/null 2>&1 || true
     rm -f "$(state_dir)/workers/$worker_id.json"
@@ -173,6 +189,7 @@ case "$status" in
     issue=$(jq -r .issue "$marker_path" 2>/dev/null || echo "?")
     details=$(jq -r .details "$marker_path" 2>/dev/null || echo "no details")
     report_error "$worker_id" "$issue" "agent marked blocked: $details" "$stderr_log"
+    bump_consecutive_failure "$role"
     # For builders, label the issue so it doesn't get re-picked next tick;
     # retry_blocked_issues will strip the label after BLOCKED_RETRY_S so the
     # next builder gets a fresh attempt with the prior comment as context.
@@ -189,6 +206,7 @@ case "$status" in
     ;;
   *)
     report_error "$worker_id" "?" "marker has unknown status: $status (sbx exit=$exit_code)" "$stderr_log"
+    bump_consecutive_failure "$role"
     sbx rm --force "$worker_id" >/dev/null 2>&1 || true
     rm -f "$(state_dir)/workers/$worker_id.json"
     ;;

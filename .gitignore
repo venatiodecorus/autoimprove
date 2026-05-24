@@ -7,6 +7,9 @@ state/last-playtest.sha
 state/pause
 state/*.lock
 state/gap-convert.processed
+state/gap-convert.last-source-hash
+state/consecutive-failures.*
+state/orchestrator.log
 state/audit-history.jsonl
 
 # Sandbox-managed git worktrees (per-worker, recreated on demand)
