@@ -74,8 +74,14 @@ EOF
 # Secrets come from `sbx secret`, never the host environment. There is no
 # --env, no --workspace, no --prompt flag.
 #
-# `set -e` is intentionally NOT in effect for this call: we want the exit
-# code so we can include it in the error report if sbx itself crashed.
+# claude is invoked with --output-format stream-json --verbose so the
+# pipeline emits one JSON event per significant action (tool call, text,
+# result). The jq pretty-printer turns those into one human-readable
+# line per event written to stdout_log. tail -F on stdout_log gives
+# live worker activity for monitor.sh's tmux window.
+#
+# `set -e` is intentionally NOT in effect: we want sbx's exit code (via
+# PIPESTATUS) so a sbx crash can be included in the error report.
 sbx run \
   --name "$worker_id" \
   --branch "$branch" \
@@ -84,9 +90,13 @@ sbx run \
   --print \
   --dangerously-skip-permissions \
   --max-turns 100 \
+  --output-format stream-json \
+  --verbose \
   "$prompt" \
-  >"$stdout_log" 2>"$stderr_log"
-exit_code=$?
+  2>"$stderr_log" \
+  | jq -r --unbuffered -f "$SCRIPT_DIR/_claude-pretty.jq" 2>>"$stderr_log" \
+  > "$stdout_log"
+exit_code="${PIPESTATUS[0]}"
 
 # Best-effort cleanup of the sandbox container. The worktree stays on
 # disk so the host can read the marker; we tear that down separately

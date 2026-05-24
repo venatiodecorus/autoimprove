@@ -17,8 +17,9 @@ Add scope later by editing SPEC.md (the audit count auto-invalidates) or by clos
 
 - [Docker Desktop with AI Sandboxes](https://docs.docker.com/ai/sandboxes/) (the `sbx` CLI). Early Access — the `sbx run claude` interface may shift; if it does, update `scripts/spawn-worker.sh`.
 - [`gh` CLI](https://cli.github.com/) authenticated against your GitHub account on the host.
-- `jq`, `git`, `bash` 4+, `uuidgen` (`util-linux` on Linux, built-in on macOS).
+- `jq`, `git`, `bash` 3.2+, `uuidgen`, and a SHA-256 implementation (`sha256sum` from coreutils on Linux, built-in `shasum` on macOS).
 - An Anthropic API key, stored via `sbx secret set -g anthropic` (or OAuth). The host does **not** need it exported.
+- Optional: `tmux` for `./scripts/monitor.sh` (see [Monitoring](#monitoring-tmux)).
 
 ## Quickstart
 
@@ -44,6 +45,30 @@ Add scope later by editing SPEC.md (the audit count auto-invalidates) or by clos
    ```
 
    On the first tick, the planner reads BRIEF.md, decides the tech stack, and writes SPEC.md, PLAN.md, `scripts/gates.sh`, and Phase 1 issues. Builders pick up from there. You should not need to hand-edit any script.
+
+## Monitoring (tmux)
+
+While you're tuning, a single command spins up the orchestrator with live monitoring panes:
+
+```sh
+./scripts/monitor.sh
+```
+
+That launches (or re-attaches to) a `autoimprove` tmux session with five windows:
+
+| Window | What it shows |
+| --- | --- |
+| `loop` | The orchestrator itself, with stdout teed to `state/orchestrator.log` |
+| `dash` | Colored snapshot every 2s — workers, ready-to-merge, issue counts by priority, last audit + gap-convert state, playtest staleness, current phase, sbx sandboxes |
+| `workers` | Live tail of every `state/workers/*.{stdout,stderr}`. Picks up new workers as they appear; each line is prefixed with the worker id. |
+| `sbx` | `sbx ls` refreshed every 3s |
+| `git` | `git log --oneline -20` + `git status --short` every 5s |
+
+Detach with `C-b d` (orchestrator keeps running). Reattach with `./scripts/monitor.sh` again. Kill the whole session (and the orchestrator) with `C-b : kill-session`.
+
+Worker activity streams live in the `workers` window because [spawn-worker.sh](scripts/spawn-worker.sh) pipes claude's `--output-format stream-json --verbose` through [scripts/_claude-pretty.jq](scripts/_claude-pretty.jq) — each line is one significant event (tool call, tool result, assistant text, or final summary).
+
+If you just want the snapshot once without tmux, run `./scripts/dashboard.sh` on its own.
 
 ## Interacting with a running loop
 
