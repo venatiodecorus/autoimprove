@@ -96,7 +96,7 @@ sbx run \
   --verbose \
   "$prompt" \
   2>"$stderr_log" \
-  | jq -r --unbuffered -f "$SCRIPT_DIR/_claude-pretty.jq" 2>>"$stderr_log" \
+  | jq -R -r --unbuffered -f "$SCRIPT_DIR/_claude-pretty.jq" 2>>"$stderr_log" \
   > "$stdout_log"
 exit_code="${PIPESTATUS[0]}"
 

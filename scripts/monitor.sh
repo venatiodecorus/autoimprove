@@ -44,33 +44,22 @@ tmux new-session -d -s "$SESSION" -n loop -c "$REPO_ROOT"
 tmux send-keys -t "$SESSION":loop \
   "./scripts/autoimprove.sh 2>&1 | tee state/orchestrator.log" C-m
 
-# --- Window: dash --- (colored snapshot every 2s)
+# --- Window: dash --- (colored snapshot every 2s, flicker-free)
+# The dashboard makes a few gh + sbx calls per render which take ~1s total.
+# Plain `clear; ./dashboard.sh` leaves the screen blank during those calls,
+# causing a visible flash on every tick. Render to a variable first, then
+# atomically: cursor-home (\033[H) + content + erase-to-end (\033[J). That
+# overwrites old content top-down so there's no blank moment.
 tmux new-window -t "$SESSION" -n dash -c "$REPO_ROOT"
 tmux send-keys -t "$SESSION":dash \
-  "while :; do clear; ./scripts/dashboard.sh; sleep 2; done" C-m
+  "printf '\\033[2J'; while :; do out=\$(./scripts/dashboard.sh 2>/dev/null); printf '\\033[H%s\\033[J' \"\$out\"; sleep 2; done" C-m
 
 # --- Window: workers --- (live worker logs, dynamic tail)
-# Inline tailer: keeps track of which files it already attached to, spawns a
-# new tail -f per new file as it appears. Bash 3.2 compatible (no associative
-# arrays). awk prefixes each line with the worker id so interleaved output is
-# legible.
+# Dispatched as a standalone bash script so the dynamic glob loop works
+# regardless of the user's interactive shell (zsh would otherwise error
+# out on the unmatched glob).
 tmux new-window -t "$SESSION" -n workers -c "$REPO_ROOT"
-tmux send-keys -t "$SESSION":workers "$(cat <<'TAILER'
-echo "(waiting for workers to appear in state/workers/...)"
-tailed=""
-while :; do
-  for f in state/workers/*.stdout state/workers/*.stderr; do
-    [ -f "$f" ] || continue
-    case " $tailed " in *" $f "*) continue ;; esac
-    label=$(basename "$f")
-    ( tail -n 100 -f "$f" 2>/dev/null \
-        | awk -v p="$label" '{print "["p"] "$0; fflush()}' ) &
-    tailed="$tailed $f"
-  done
-  sleep 2
-done
-TAILER
-)" C-m
+tmux send-keys -t "$SESSION":workers "./scripts/_tail-workers.sh" C-m
 
 # --- Window: sbx --- (sandbox-level view)
 tmux new-window -t "$SESSION" -n sbx -c "$REPO_ROOT"
