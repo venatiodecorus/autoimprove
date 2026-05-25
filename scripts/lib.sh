@@ -231,12 +231,25 @@ invalidate_playtest_sha() {
 # Worker accounting
 # ----------------------------------------------------------------------------
 
+# NOTE: do NOT use `ls *.json | wc -l` here — under bash 5 + set -euo
+# pipefail, an empty glob makes ls exit non-zero, pipefail propagates,
+# and the entire orchestrator dies silently from the calling
+# `live=$(count_live_workers)` substitution. The glob-iteration pattern
+# below is safe regardless of how many files match (zero or more).
 count_live_workers() {
-  ls "$(state_dir)/workers/"*.json 2>/dev/null | wc -l | tr -d ' '
+  local count=0 f
+  for f in "$(state_dir)/workers/"*.json; do
+    [ -f "$f" ] && count=$((count + 1))
+  done
+  echo "$count"
 }
 
 count_pending_merges() {
-  ls "$(state_dir)/ready-to-merge/"*.json 2>/dev/null | wc -l | tr -d ' '
+  local count=0 f
+  for f in "$(state_dir)/ready-to-merge/"*.json; do
+    [ -f "$f" ] && count=$((count + 1))
+  done
+  echo "$count"
 }
 
 # Returns the count of open GitHub issues, or "-1" if gh is unreachable.

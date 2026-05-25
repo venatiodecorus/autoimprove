@@ -4,6 +4,12 @@
 #
 # Usage: cleanup-worker.sh <worker-id> [<worktree>] [<branch>]
 #
+# Worker stdout/stderr logs are PRESERVED — they're moved into
+# state/workers/done/ so:
+#   (a) the monitor's workers pane keeps showing what the agent did,
+#   (b) you can post-hoc inspect a finished run.
+# Periodically purge state/workers/done/ manually when it grows too large.
+#
 # The worktree and branch arguments are informational (used in logs);
 # the actual teardown is done by `sbx rm --force <worker-id>`, which
 # removes the sandbox container, the .sbx/<worker-id>-worktrees/<branch>
@@ -18,11 +24,19 @@ worker=${1:?"usage: cleanup-worker.sh <worker-id> [<worktree>] [<branch>]"}
 tree=${2:-}
 branch=${3:-}
 
-# Remove worker state files first so a re-entrant cleanup is a no-op.
+# Active-worker JSON: remove (worker is no longer active).
 rm -f "$(state_dir)/workers/$worker.json"
-rm -f "$(state_dir)/workers/$worker.stdout"
-rm -f "$(state_dir)/workers/$worker.stderr"
 rm -f "$(state_dir)/ready-to-merge/$worker.json"
+
+# Worker logs: archive into done/ instead of deleting so we can review them.
+done_dir="$(state_dir)/workers/done"
+mkdir -p "$done_dir"
+for ext in stdout stderr fetch.log; do
+  src="$(state_dir)/workers/$worker.$ext"
+  if [ -f "$src" ]; then
+    mv "$src" "$done_dir/$worker.$ext" 2>/dev/null || rm -f "$src"
+  fi
+done
 
 # sbx rm --force tears down the sandbox container, the per-worker
 # worktree under .sbx/, and the associated branch. If the sandbox is
