@@ -66,8 +66,9 @@ EOF
 
 # Launch the sandbox.
 #
-# sbx contract (`sbx run --help`):
-#   sbx run [flags] AGENT [PATH...] [-- AGENT_ARGS...]
+# sbx contract (`sbx run --help`, `sbx create --help`, `sbx exec --help`):
+#   sbx create [flags] AGENT PATH    — provisions a sandbox without attaching.
+#   sbx exec SANDBOX COMMAND [ARG..] — docker-exec equivalent, clean stdio.
 #   --branch <name>  Creates a git worktree on the given branch at
 #                    $REPO_ROOT/.sbx/<sandbox-name>-worktrees/<branch>.
 #   --name <name>    Names the sandbox (we use the worker_id so cleanup
@@ -76,26 +77,39 @@ EOF
 # Secrets come from `sbx secret`, never the host environment. There is no
 # --env, no --workspace, no --prompt flag.
 #
+# IMPORTANT: do NOT use `sbx run claude -- ...` here. `sbx run` attaches
+# claude as an interactive TUI and routes its stdout through an internal
+# terminal channel; the --output-format stream-json events never reach
+# this pipe, so the workers pane stays silent for the entire session.
+# `sbx create` + `sbx exec claude ...` is the headless path: the
+# stream-json events flow through the pipe to jq → stdout_log → tail -f
+# in monitor.sh, giving live worker activity. See plan doc at
+# ~/.claude/plans/currently-we-re-not-seeing-lucky-stream.md for the
+# smoke-test evidence behind this split.
+#
 # claude is invoked with --output-format stream-json --verbose so the
 # pipeline emits one JSON event per significant action (tool call, text,
 # result). The jq pretty-printer turns those into one human-readable
-# line per event written to stdout_log. tail -F on stdout_log gives
-# live worker activity for monitor.sh's tmux window.
+# line per event written to stdout_log.
 #
-# `set -e` is intentionally NOT in effect: we want sbx's exit code (via
-# PIPESTATUS) so a sbx crash can be included in the error report.
-sbx run \
+# `set -e` is intentionally NOT in effect: we want claude's exit code
+# (via PIPESTATUS on the exec step) so a sandbox crash can be included
+# in the error report.
+sbx create \
   --name "$worker_id" \
   --branch "$branch" \
   claude "$REPO_ROOT" \
-  -- \
+  >>"$stderr_log" 2>&1
+
+sbx exec "$worker_id" claude \
   --print \
   --dangerously-skip-permissions \
   --max-turns 100 \
   --output-format stream-json \
   --verbose \
   "$prompt" \
-  2>"$stderr_log" \
+  </dev/null \
+  2>>"$stderr_log" \
   | jq -R -r --unbuffered -f "$SCRIPT_DIR/_claude-pretty.jq" 2>>"$stderr_log" \
   > "$stdout_log"
 exit_code="${PIPESTATUS[0]}"
