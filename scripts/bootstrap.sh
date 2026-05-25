@@ -14,6 +14,20 @@ cd "$REPO_ROOT"
 
 repo_name=${1:-$(basename "$REPO_ROOT")}
 
+# Make sure the user sees a summary on the way out, regardless of where we
+# exit. set -e otherwise kills the script silently mid-step.
+bootstrap_status="incomplete"
+on_exit() {
+  local rc=$?
+  if [ "$bootstrap_status" = "ok" ]; then
+    return
+  fi
+  printf '\n\033[31m[bootstrap]\033[0m did not complete (exit %d).\n' "$rc" >&2
+  printf '            Re-run ./scripts/bootstrap.sh after fixing the issue;\n' >&2
+  printf '            it is idempotent and will pick up where it left off.\n\n' >&2
+}
+trap on_exit EXIT
+
 # ---------------------------------------------------------------------------
 # Step 1 — verify prerequisites
 # ---------------------------------------------------------------------------
@@ -89,26 +103,51 @@ setup_sbx_secrets() {
 setup_sbx_secrets
 
 # ---------------------------------------------------------------------------
-# Step 2 — initialize git
+# Step 2 — initialize git (idempotent: recovers from any partial state)
 # ---------------------------------------------------------------------------
 
+# (a) Ensure .git exists.
 if [ ! -d .git ]; then
   log_info "initializing git repo..."
-  git init -b main
+  git init -b main >/dev/null
+fi
+
+# (b) Ensure HEAD points at a real commit. A previous bootstrap run may
+#     have created .git but failed before committing — re-running used
+#     to skip step 2 entirely because of the `[ ! -d .git ]` guard,
+#     leaving the repo permanently broken. Now we check HEAD validity
+#     instead.
+if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+  # Defensive: confirm git identity before attempting the commit so we
+  # fail loud rather than dying with a cryptic "please tell me who you
+  # are" mid-commit.
+  if [ -z "$(git config user.email 2>/dev/null)" ] && \
+     [ -z "$(git config --global user.email 2>/dev/null)" ]; then
+    log_warn "git user.email is not configured. Set it first:"
+    log_warn "  git config --global user.email \"you@example.com\""
+    log_warn "  git config --global user.name  \"Your Name\""
+    exit 1
+  fi
+  log_info "creating initial commit..."
   git add .
-  git commit -m "chore: bootstrap autoimprove framework
+  if ! git commit -m "chore: bootstrap autoimprove framework
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
-Co-Authored-By: Claude <noreply@anthropic.com>"
+Co-Authored-By: Claude <noreply@anthropic.com>"; then
+    log_warn "git commit failed. See the output above for the actual reason."
+    log_warn "(Common causes: pre-commit hook, missing identity, gpg signing required but unconfigured.)"
+    exit 1
+  fi
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3 — create GitHub repo (private)
+# Step 3 — create GitHub repo (private; idempotent)
 # ---------------------------------------------------------------------------
 
 if ! gh repo view >/dev/null 2>&1; then
   log_info "creating private GitHub repo: $repo_name"
+  # --push works now because step 2 guaranteed there's a HEAD commit.
   gh repo create "$repo_name" --private --source=. --remote=origin --push
 fi
 
@@ -163,6 +202,8 @@ fi
 # Report
 # ---------------------------------------------------------------------------
 
+bootstrap_status="ok"
+
 cat <<EOF
 
 ✅ Bootstrap complete.
@@ -174,6 +215,8 @@ Next steps:
      If 'anthropic' is missing, set it (see the bootstrap output above).
   3. Start the loop:
        ./scripts/autoimprove.sh
+     Or with live monitoring:
+       ./scripts/monitor.sh
 
 The first run will dispatch the planner with no SPEC.md. The planner reads
 BRIEF.md and writes SPEC.md + PLAN.md, seeds Phase 1 issues, AND writes
